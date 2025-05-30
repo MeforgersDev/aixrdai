@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Meforgers AI - AI ile Sohbet Et",
   description: "Gelişmiş AI teknolojisi ile akıllı sohbet deneyimi",
-    generator: 'v0.dev'
+    generator: 'MeforgersAI'
 }
 
 export default function RootLayout({

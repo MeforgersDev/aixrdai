@@ -1,67 +1,84 @@
-"use client"
-
 import { useEffect, useRef, useCallback } from "react"
 import { authService } from "@/lib/auth-service"
 
-export function useChatStream(chatId: string, onDelta: (text: string) => void, onComplete?: () => void) {
-  const eventSourceRef = useRef<EventSource | null>(null)
+export function useChatStream(
+  chatId: string,
+  onDelta: (text: string) => void,
+  onComplete?: () => void
+) {
+  const abortControllerRef = useRef<AbortController | null>(null)
   const bufferRef = useRef("")
 
   const startStream = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-    }
-
-    bufferRef.current = ""
     const token = authService.getToken()
-
     if (!token) {
       console.error("No auth token available for streaming")
       return
     }
 
-    // Note: EventSource doesn't support custom headers directly
-    // We'll need to pass the token as a query parameter or use a different approach
-    const url = `https://api.meforgers.com/chats/${chatId}/stream?token=${encodeURIComponent(token)}`
+    const url = `https://api.meforgers.com/chats/${chatId}/stream`
+    const controller = new AbortController()
+    abortControllerRef.current = controller
 
-    const eventSource = new EventSource(url)
-    eventSourceRef.current = eventSource
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.type === "delta") {
-          bufferRef.current += data.data
-          onDelta(bufferRef.current)
-        }
-      } catch (error) {
-        console.error("Error parsing SSE data:", error)
-      }
-    }
-
-    eventSource.onerror = (error) => {
-      console.error("SSE error:", error)
-      eventSource.close()
-      onComplete?.()
-    }
-
-    eventSource.addEventListener("close", () => {
-      eventSource.close()
-      onComplete?.()
+    fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "text/event-stream",
+      },
+      signal: controller.signal,
     })
+      .then((response) => {
+        if (!response.ok || !response.body) {
+          throw new Error("Stream failed to start")
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder("utf-8")
+
+        const read = () => {
+          reader.read().then(({ value, done }) => {
+            if (done) {
+              onComplete?.()
+              return
+            }
+
+            const chunk = decoder.decode(value, { stream: true })
+
+            for (const line of chunk.split("\n")) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const payload = JSON.parse(line.replace("data: ", ""))
+                  if (payload.type === "delta") {
+                    bufferRef.current += payload.data
+                    onDelta(bufferRef.current)
+                  }
+                } catch (err) {
+                  console.error("SSE parse error:", err)
+                }
+              }
+            }
+
+            read()
+          })
+        }
+
+        read()
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return
+        console.error("SSE fetch error:", err)
+        onComplete?.()
+      })
   }, [chatId, onDelta, onComplete])
 
   const stopStream = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
-    }
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
   }, [])
 
   useEffect(() => {
-    return () => {
-      stopStream()
-    }
+    return () => stopStream()
   }, [stopStream])
 
   return { startStream, stopStream }
