@@ -1,9 +1,8 @@
-// message-bubble.tsx
 "use client"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Copy, Check, RotateCcw, User, Bot, Loader2 } from "lucide-react"
+import { Copy, Check, RotateCcw, User, Bot } from "lucide-react"
 import type { Message } from "@/types/chat"
 import { toast } from "@/hooks/use-toast"
 import ReactMarkdown from "react-markdown"
@@ -13,7 +12,7 @@ import remarkGfm from "remark-gfm"
 
 interface MessageBubbleProps {
   message: Message
-  onRegenerate?: (messageId: string) => void // Prop'u, AI mesajının kendi ID'sini alacak şekilde değiştirdik
+  onRegenerate?: (parentId: string, content: string) => void
   isStreaming?: boolean
 }
 
@@ -57,18 +56,15 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
     }
   }
 
-  const handleRegenerateClick = () => {
-    if (onRegenerate && message.role === "ASSISTANT") { // Sadece ASSISTANT mesajları için yeniden üretmeyi tetikle
-      onRegenerate(message.id); // AI mesajının kendi ID'sini gönderiyoruz
+  const handleRegenerate = () => {
+    if (onRegenerate && message.parentId) {
+      const userMessage = message.parentId
+      onRegenerate(userMessage, message.content)
     }
   }
 
   const isUser = message.role === "USER"
   const isAssistant = message.role === "ASSISTANT"
-
-  // Yeniden üretme butonunun aktif olup olmayacağını belirle
-  // Sadece AI mesajı ise, bir parent'ı varsa ve akış devam etmiyorsa etkin
-  const canRegenerate = isAssistant && message.parentId && !isStreaming;
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-6`}>
@@ -200,35 +196,23 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
               >
                 {message.content}
               </ReactMarkdown>
-              {/* Akış devam ederken yanıp sönen imleç veya loader göstergesi */}
-              {isStreaming && (
-                <span className="inline-block w-2 h-5 bg-gray-400 animate-pulse ml-1" />
-              )}
+              {isStreaming && <span className="inline-block w-2 h-5 bg-gray-400 animate-pulse ml-1" />}
             </div>
           )}
 
           {/* Actions */}
-          {isAssistant && (
+          {isAssistant && !isStreaming && (
             <div className="flex items-center space-x-2 mt-3 pt-2 border-t border-gray-200">
               <Button variant="ghost" size="sm" onClick={handleCopy} className="h-6 px-2 text-xs text-gray-600">
                 {copied ? <Check className="h-3 w-3 mr-1" /> : <Copy className="h-3 w-3 mr-1" />}
                 {copied ? "Kopyalandı" : "Kopyala"}
               </Button>
 
-              {canRegenerate && onRegenerate && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRegenerateClick}
-                  className="h-6 px-2 text-xs text-gray-600"
-                  disabled={!canRegenerate}
-                >
+              {onRegenerate && (
+                <Button variant="ghost" size="sm" onClick={handleRegenerate} className="h-6 px-2 text-xs text-gray-600">
                   <RotateCcw className="h-3 w-3 mr-1" />
                   Yeniden Üret
                 </Button>
-              )}
-              {isStreaming && ( // Akış sırasında bir loader göster
-                 <Loader2 className="h-4 w-4 animate-spin text-gray-600 ml-2" />
               )}
             </div>
           )}
