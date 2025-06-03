@@ -1,5 +1,5 @@
 import { authService } from "./auth-service"
-import type { Chat, Message } from "@/types/chat"
+import type { Chat, Message } from "@/types/chat" // Chat tipini de import etmeliyiz
 
 const API_BASE_URL = "https://api.meforgers.com"
 
@@ -15,6 +15,10 @@ class ChatService {
   }
 
   async createChat(title?: string): Promise<Chat> {
+    // Bu metod, backend'deki Post('chats') endpoint'ine karşılık gelir.
+    // Ancak backend'deki SendMessage metodu da null chatId ile yeni chat oluşturduğu için
+    // bu metodun çağrılması yeni bir chat oluşturur ve ilk mesaj gönderilmeden boş kalır.
+    // Frontend'de bu metodun kullanım amacı "yeni bir boş sohbet başlat" ise uygundur.
     const response = await authService.makeAuthenticatedRequest(`${API_BASE_URL}/chats`, {
       method: "POST",
       body: JSON.stringify({ title }),
@@ -37,31 +41,54 @@ class ChatService {
     }
   }
 
-  async getMessages(chatId: string): Promise<Message[]> {
-    const response = await authService.makeAuthenticatedRequest(`${API_BASE_URL}/chats/${chatId}/messages`)
+  // Düzeltme: Backend'deki /chats/:id endpoint'i artık mesajları da getiriyor.
+  // Bu nedenle getMessages yerine getChatDetails adını kullanabiliriz.
+  // Bu metod Chat nesnesini döndürecek, içinde messages dizisi olacak.
+  async getChatDetails(chatId: string): Promise<Chat> {
+    const response = await authService.makeAuthenticatedRequest(`${API_BASE_URL}/chats/${chatId}`)
 
     if (!response.ok) {
-      throw new Error("Mesajlar yüklenirken hata oluştu")
+      throw new Error("Sohbet detayları yüklenirken hata oluştu")
     }
 
     return response.json()
   }
 
   async sendMessage(
-    chatId: string,
+    chatId: string | null, // chatId null olabilir (yeni sohbet için)
     content: string,
     parentId?: string,
-  ): Promise<{ userMsg: Message; assistantMsg: Message }> {
-    const response = await authService.makeAuthenticatedRequest(`${API_BASE_URL}/chats/${chatId}/messages`, {
-      method: "POST",
-      body: JSON.stringify({
+  ): Promise<{ chat: Chat; userMsg: Message; assistantMsg: Message }> {
+    let url: string;
+    let method: string = "POST";
+    let body: object;
+
+    if (chatId) {
+      // Mevcut sohbete mesaj gönderme
+      url = `${API_BASE_URL}/chats/${chatId}/messages`;
+      body = {
         content,
         parentId,
         settings: {
           temperature: 0.7,
         },
-      }),
-    })
+      };
+    } else {
+      // Yeni sohbet başlatma
+      url = `${API_BASE_URL}/chats/messages`; // Backend'deki Post('messages') endpoint'i
+      body = {
+        content,
+        parentId, // Yeni sohbette parentId genelde olmaz ama yine de yollanabilir
+        settings: {
+          temperature: 0.7,
+        },
+      };
+    }
+
+    const response = await authService.makeAuthenticatedRequest(url, {
+      method: method,
+      body: JSON.stringify(body),
+    });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: "Mesaj gönderilirken hata oluştu" }))

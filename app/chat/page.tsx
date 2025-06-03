@@ -40,8 +40,13 @@ export default function ChatPage() {
     try {
       const chatList = await chatService.getChats()
       setChats(chatList)
+      // Eğer hiç sohbet yoksa ve yeni bir sohbet başlatmak istiyorsanız,
+      // veya ilk kez yüklendiğinde bir sohbet seçilmemişse, ilkini seç.
       if (chatList.length > 0 && !selectedChatId) {
         setSelectedChatId(chatList[0].id)
+      } else if (chatList.length === 0 && selectedChatId) {
+        // Eğer seçili bir chat vardı ama artık yoksa (silinmişse vb.)
+        setSelectedChatId(null);
       }
     } catch (error) {
       console.error("Sohbetler yüklenirken hata:", error)
@@ -50,6 +55,11 @@ export default function ChatPage() {
 
   const handleNewChat = async (title?: string) => {
     try {
+      // ChatService'deki createChat metodu doğrudan boş bir chat oluşturur.
+      // Eğer ilk mesajla birlikte chat oluşturulmasını istiyorsanız
+      // bu metodu kullanmayıp ChatInterface'deki sendMessage metodunun
+      // null chatId ile çağrılmasını sağlayabilirsiniz.
+      // Mevcut yapıda, handleNewChat'e basıldığında boş bir chat oluşur.
       const newChat = await chatService.createChat(title)
       setChats((prev) => [newChat, ...prev])
       setSelectedChatId(newChat.id)
@@ -111,7 +121,7 @@ export default function ChatPage() {
               <h2 className="text-2xl font-semibold text-gray-700 mb-4">Meforgers AI'ya Hoş Geldiniz</h2>
               <p className="text-gray-500 mb-6">Yeni bir sohbet başlatın veya mevcut sohbetlerinizden birini seçin</p>
               <button
-                onClick={() => handleNewChat()}
+                onClick={() => handleNewChat()} // İlk mesaj göndermeyle chat başlatmak için burayı ayarlayabilirsin
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Yeni Sohbet Başlat

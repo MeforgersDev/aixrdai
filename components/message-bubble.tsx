@@ -3,7 +3,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Copy, Check, RotateCcw, User, Bot, Loader2 } from "lucide-react" // Loader2'yi ekledik
+import { Copy, Check, RotateCcw, User, Bot, Loader2 } from "lucide-react"
 import type { Message } from "@/types/chat"
 import { toast } from "@/hooks/use-toast"
 import ReactMarkdown from "react-markdown"
@@ -13,8 +13,8 @@ import remarkGfm from "remark-gfm"
 
 interface MessageBubbleProps {
   message: Message
-  onRegenerate?: (parentId: string, content: string) => void // parentId, user mesajının id'si olmalı
-  isStreaming?: boolean // Yeni prop
+  onRegenerate?: (messageId: string) => void // Prop'u, AI mesajının kendi ID'sini alacak şekilde değiştirdik
+  isStreaming?: boolean
 }
 
 export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBubbleProps) {
@@ -57,20 +57,9 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
     }
   }
 
-  const handleRegenerateClick = () => { // Metod adını değiştirdik, karışıklığı önlemek için
-    if (onRegenerate && message.parentId) {
-      // Yeniden üretme işlevi, genellikle önceki kullanıcı mesajının içeriğini yeniden işlemeyi gerektirir.
-      // Ancak mevcut yapıda, AI'nın kendi içeriğini yeniden üretmesini istiyorsanız,
-      // onRegenerate(message.parentId, message.content) doğru olabilir.
-      // GENELDE parentId (yani USER mesajının ID'si) ve o USER mesajının içeriği gönderilir.
-      // Eğer ChatInterface'de userMessage.content'i de saklayıp buraya geçirebilirseniz daha iyi olur.
-      // Şimdilik varsayalım ki `message.content` yeniden üretilecek AI yanıtı için bir "ipucu" olarak kullanılıyor.
-      // Ancak bu genellikle beklenmez, genellikle kullanıcı mesajı yeniden işlenir.
-      // Eğer `onRegenerate`'in ikinci parametresi "yeniden işlenecek kullanıcı mesajının içeriği" ise,
-      // bu bilgiyi `ChatInterface`'den buraya doğru bir şekilde aktarmanız gerekir.
-      // Şimdilik, sizin orijinal mantığınızı koruyarak AI'ın son çıktısını gönderiyorum,
-      // ama bu, genellikle bir yeniden üretme akışında beklenen şey değildir.
-      onRegenerate(message.parentId, message.content)
+  const handleRegenerateClick = () => {
+    if (onRegenerate && message.role === "ASSISTANT") { // Sadece ASSISTANT mesajları için yeniden üretmeyi tetikle
+      onRegenerate(message.id); // AI mesajının kendi ID'sini gönderiyoruz
     }
   }
 
@@ -78,6 +67,7 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
   const isAssistant = message.role === "ASSISTANT"
 
   // Yeniden üretme butonunun aktif olup olmayacağını belirle
+  // Sadece AI mesajı ise, bir parent'ı varsa ve akış devam etmiyorsa etkin
   const canRegenerate = isAssistant && message.parentId && !isStreaming;
 
   return (
@@ -218,29 +208,26 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
           )}
 
           {/* Actions */}
-          {isAssistant && ( // Assistant mesajları için her zaman action div'ini göster
+          {isAssistant && (
             <div className="flex items-center space-x-2 mt-3 pt-2 border-t border-gray-200">
-              {/* Kopyala butonu her zaman görünür, akış sırasında da kullanılabilir. */}
               <Button variant="ghost" size="sm" onClick={handleCopy} className="h-6 px-2 text-xs text-gray-600">
                 {copied ? <Check className="h-3 w-3 mr-1" /> : <Copy className="h-3 w-3 mr-1" />}
                 {copied ? "Kopyalandı" : "Kopyala"}
               </Button>
 
-              {/* Yeniden Üret butonu sadece akış devam etmiyorsa görünür ve tıklanabilir. */}
-              {canRegenerate && onRegenerate && ( // `onRegenerate` prop'u varsa göster
+              {canRegenerate && onRegenerate && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleRegenerateClick}
                   className="h-6 px-2 text-xs text-gray-600"
-                  disabled={!canRegenerate} // canRegenerate true ise aktif, false ise disabled
+                  disabled={!canRegenerate}
                 >
                   <RotateCcw className="h-3 w-3 mr-1" />
                   Yeniden Üret
                 </Button>
               )}
-               {/* Akış sırasında Loader2 gösterimi (isteğe bağlı) */}
-              {isStreaming && (
+              {isStreaming && ( // Akış sırasında bir loader göster
                  <Loader2 className="h-4 w-4 animate-spin text-gray-600 ml-2" />
               )}
             </div>

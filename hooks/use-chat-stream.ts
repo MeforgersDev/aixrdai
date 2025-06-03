@@ -14,8 +14,8 @@ interface FinishedPayload {
 export function useChatStream(
   chatId: string,
   onDelta: (payload: DeltaPayload) => void,
-  onComplete: (payload: FinishedPayload) => void, // Artık bir payload alacak
-  onError: (error: Error) => void, // Hata yönetimi için
+  onComplete: (payload: FinishedPayload) => void,
+  onError: (error: Error) => void,
 ) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const bufferRef = useRef("")
@@ -56,10 +56,9 @@ export function useChatStream(
         const read = () => {
           reader.read().then(({ value, done }) => {
             if (done) {
-              // Akış tamamen bitti, ancak 'finished' event'i gelmeyebilir
-              // Eğer finished event'i gelmediyse, burası en son nokta.
-              // Bu durumda onComplete'i çağırabiliriz ancak assistantMessageId'miz olmaz.
-              // Bu yüzden 'finished' event'ine güvenmek daha iyi.
+              // Akış tamamen bitti. Eğer 'finished' event'i gelmediyse,
+              // burada özel bir durum yönetimi yapılabilir.
+              // Şimdilik 'finished' event'ine güveniyoruz.
               return
             }
 
@@ -90,7 +89,7 @@ export function useChatStream(
         read()
       })
       .catch((err) => {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) return // Akış durdurulduysa hata verme
         console.error("SSE fetch error:", err)
         onError(err as Error)
         stopStream(); // Hata durumunda da bağlantıyı kes
