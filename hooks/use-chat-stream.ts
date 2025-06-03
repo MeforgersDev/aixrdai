@@ -1,20 +1,37 @@
+// use-chat-stream.ts
 import { useEffect, useRef, useCallback } from "react"
 import { authService } from "@/lib/auth-service"
 
+interface DeltaPayload {
+  parentId: string // USER mesajının ID'si
+  content: string // Akış içeriği
+}
+
+interface FinishedPayload {
+  assistantMessageId: string // Tamamlanan ASSISTANT mesajının ID'si
+}
+
 export function useChatStream(
   chatId: string,
-  onDelta: (text: string) => void,
-  onComplete?: () => void
+  onDelta: (payload: DeltaPayload) => void,
+  onComplete: (payload: FinishedPayload) => void, // Artık bir payload alacak
+  onError: (error: Error) => void, // Hata yönetimi için
 ) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const bufferRef = useRef("")
+  const currentParentIdRef = useRef<string | null>(null) // Delta'nın parentId'sini tutmak için
 
-  const startStream = useCallback(() => {
+  const startStream = useCallback((parentId: string) => {
     const token = authService.getToken()
     if (!token) {
       console.error("No auth token available for streaming")
+      onError(new Error("No auth token available for streaming"))
       return
     }
+
+    // Akış başladığında buffer'ı ve parentId'yi sıfırla
+    bufferRef.current = ""
+    currentParentIdRef.current = parentId
 
     const url = `https://api.meforgers.com/chats/${chatId}/stream`
     const controller = new AbortController()
@@ -30,7 +47,7 @@ export function useChatStream(
     })
       .then((response) => {
         if (!response.ok || !response.body) {
-          throw new Error("Stream failed to start")
+          throw new Error(`Stream failed to start: ${response.statusText}`)
         }
 
         const reader = response.body.getReader()
@@ -39,7 +56,10 @@ export function useChatStream(
         const read = () => {
           reader.read().then(({ value, done }) => {
             if (done) {
-              onComplete?.()
+              // Akış tamamen bitti, ancak 'finished' event'i gelmeyebilir
+              // Eğer finished event'i gelmediyse, burası en son nokta.
+              // Bu durumda onComplete'i çağırabiliriz ancak assistantMessageId'miz olmaz.
+              // Bu yüzden 'finished' event'ine güvenmek daha iyi.
               return
             }
 
@@ -49,12 +69,16 @@ export function useChatStream(
               if (line.startsWith("data: ")) {
                 try {
                   const payload = JSON.parse(line.replace("data: ", ""))
-                  if (payload.type === "delta") {
-                    bufferRef.current += payload.data
-                    onDelta(bufferRef.current)
+                  if (payload.type === "delta" && payload.data.parentId === currentParentIdRef.current) {
+                    bufferRef.current += payload.data.content
+                    onDelta({ parentId: payload.data.parentId, content: bufferRef.current })
+                  } else if (payload.type === "finished" && payload.data.assistantMessageId) {
+                    onComplete({ assistantMessageId: payload.data.assistantMessageId })
+                    stopStream(); // Akış tamamlandığında bağlantıyı kes
                   }
                 } catch (err) {
                   console.error("SSE parse error:", err)
+                  onError(err as Error)
                 }
               }
             }
@@ -68,18 +92,21 @@ export function useChatStream(
       .catch((err) => {
         if (controller.signal.aborted) return
         console.error("SSE fetch error:", err)
-        onComplete?.()
+        onError(err as Error)
+        stopStream(); // Hata durumunda da bağlantıyı kes
       })
-  }, [chatId, onDelta, onComplete])
+  }, [chatId, onDelta, onComplete, onError])
 
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort()
     abortControllerRef.current = null
+    bufferRef.current = "" // Stop'ta buffer'ı temizle
+    currentParentIdRef.current = null
   }, [])
 
   useEffect(() => {
-    return () => stopStream()
+    return () => stopStream() // Bileşen unmount edildiğinde akışı durdur
   }, [stopStream])
 
-  return { startStream, stopStream }
+  return { startStream, stopStream, buffer: bufferRef.current }
 }
