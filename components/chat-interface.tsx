@@ -1,3 +1,4 @@
+// components/chat-interface.tsx
 "use client"
 
 import type React from "react"
@@ -27,119 +28,124 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const handleStreamComplete = useCallback(() => {
+    setIsStreaming(false);
+    setStreamingMessage(""); // Akış bittiğinde streamingMessage'i temizle
+    loadMessages(); // Akış bittiğinde tüm mesajları yeniden yükle
+    onChatUpdate?.(); // Sohbet listesinin güncellenmesi için
+  }, [chatId, onChatUpdate]); // Bağımlılıkları ekleyin
+
   const { startStream, stopStream } = useChatStream(
     chatId,
     (delta) => {
-      setStreamingMessage(delta)
+      setStreamingMessage(delta);
     },
-    () => {
-      setIsStreaming(false)
-      setStreamingMessage("")
-      loadMessages()
-    },
-  )
+    handleStreamComplete, // Callback olarak pass et
+  );
 
   useEffect(() => {
-    loadMessages()
-  }, [chatId])
+    loadMessages();
+  }, [chatId]);
 
   useEffect(() => {
-    scrollToBottom()
-  }, [messages, streamingMessage])
+    scrollToBottom();
+  }, [messages, streamingMessage]);
 
   const loadMessages = async () => {
     try {
-      const messageList = await chatService.getMessages(chatId)
-      setMessages(messageList)
+      const messageList = await chatService.getMessages(chatId);
+      setMessages(messageList);
     } catch (error) {
-      console.error("Mesajlar yüklenirken hata:", error)
+      console.error("Mesajlar yüklenirken hata:", error);
       toast({
         title: "Hata",
         description: "Mesajlar yüklenirken bir hata oluştu",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
   const scrollToBottom = () => {
     if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector("[data-radix-scroll-area-viewport]")
+      const scrollContainer = scrollAreaRef.current.querySelector("[data-radix-scroll-area-viewport]");
       if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
       }
     }
-  }
+  };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || isLoading || isStreaming) return
+    if (!inputValue.trim() || isLoading || isStreaming) return;
 
-    const messageContent = inputValue.trim()
-    setInputValue("")
-    setIsLoading(true)
-    setIsStreaming(true)
+    const messageContent = inputValue.trim();
+    setInputValue("");
+    setIsLoading(true); // Yükleniyor durumuna geç
+
+    // Optimistik UI güncellemesi
+    const tempUserMessage: Message = {
+      id: `temp-${Date.now()}`,
+      chatId,
+      role: "USER",
+      content: messageContent,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMessage]);
 
     try {
-      // Optimistic UI update
-      const tempUserMessage: Message = {
-        id: `temp-${Date.now()}`,
-        chatId,
-        role: "USER",
-        content: messageContent,
-        createdAt: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, tempUserMessage])
-
-      // Start streaming
-      startStream()
-
-      // Send message
-      await chatService.sendMessage(chatId, messageContent)
-
-      onChatUpdate?.()
+      setIsStreaming(true); // Akış başlatılacak
+      startStream(); // Akış başlat
+      await chatService.sendMessage(chatId, messageContent);
+      // sendMessage tamamlandığında, stream bitiminde handleStreamComplete çağrılacak
     } catch (error) {
-      console.error("Mesaj gönderilirken hata:", error)
+      console.error("Mesaj gönderilirken hata:", error);
       toast({
         title: "Hata",
         description: "Mesaj gönderilirken bir hata oluştu",
         variant: "destructive",
-      })
-      setIsStreaming(false)
-      setStreamingMessage("")
+      });
+      // Hata durumunda akış durumlarını sıfırla
+      stopStream(); // Akışı durdur
+      setIsStreaming(false);
+      setStreamingMessage("");
+      // Hatalı gönderilen mesajı listeden kaldırabilir veya hata mesajı gösterebilirsiniz.
+      // Şimdilik sadece toast göstereceğiz.
     } finally {
-      setIsLoading(false)
+      setIsLoading(false); // Yükleniyor durumundan çık
     }
-  }
+  };
 
   const handleRegenerateMessage = async (parentId: string, content: string) => {
-    if (isLoading || isStreaming) return
+    if (isLoading || isStreaming) return;
 
-    setIsLoading(true)
-    setIsStreaming(true)
+    setIsLoading(true); // Yükleniyor durumuna geç
 
     try {
-      startStream()
-      await chatService.sendMessage(chatId, content, parentId)
-      onChatUpdate?.()
+      setIsStreaming(true); // Akış başlatılacak
+      startStream(); // Akış başlat
+      await chatService.sendMessage(chatId, content, parentId);
+      // sendMessage tamamlandığında, stream bitiminde handleStreamComplete çağrılacak
     } catch (error) {
-      console.error("Mesaj yeniden üretilirken hata:", error)
+      console.error("Mesaj yeniden üretilirken hata:", error);
       toast({
         title: "Hata",
         description: "Mesaj yeniden üretilirken bir hata oluştu",
         variant: "destructive",
-      })
-      setIsStreaming(false)
-      setStreamingMessage("")
+      });
+      // Hata durumunda akış durumlarını sıfırla
+      stopStream(); // Akışı durdur
+      setIsStreaming(false);
+      setStreamingMessage("");
     } finally {
-      setIsLoading(false)
+      setIsLoading(false); // Yükleniyor durumundan çık
     }
-  }
+  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage()
+      e.preventDefault();
+      handleSendMessage();
     }
-  }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -154,13 +160,13 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
           {isStreaming && streamingMessage && (
             <MessageBubble
               message={{
-                id: "streaming",
+                id: "streaming", // Geçici ID
                 chatId,
                 role: "ASSISTANT",
                 content: streamingMessage,
-                createdAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(), // Geçici zaman damgası
               }}
-              isStreaming={true}
+              isStreaming={true} // Akışta olduğunu belirt
             />
           )}
         </div>
@@ -197,5 +203,5 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
         </div>
       </div>
     </div>
-  )
+  );
 }
