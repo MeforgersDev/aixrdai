@@ -5,10 +5,11 @@ import { authService } from "@/lib/auth-service"
 export function useChatStream(
   chatId: string,
   onDelta: (text: string, parentId?: string) => void, // parentId'yi de ekledik
-  onComplete: () => void
+  onComplete: (finalContent: string, parentId?: string) => void // onComplete'e de finalContent ve parentId ekledik
 ) {
   const abortControllerRef = useRef<AbortController | null>(null)
-  const bufferRef = useRef("")
+  const bufferRef = useRef("") // Akış sırasında biriken tüm metni tutar
+  const parentIdRef = useRef<string | undefined>(undefined); // Akış mesajının parentId'sini tutar
 
   const startStream = useCallback(() => {
     const token = authService.getToken()
@@ -16,6 +17,10 @@ export function useChatStream(
       console.error("No auth token available for streaming")
       return
     }
+
+    // Her yeni akış başladığında buffer ve parentId'yi sıfırla
+    bufferRef.current = "";
+    parentIdRef.current = undefined;
 
     const url = `https://api.meforgers.com/chats/${chatId}/stream`
     const controller = new AbortController()
@@ -45,18 +50,17 @@ export function useChatStream(
           for (const eventString of events) {
             if (!eventString.trim()) continue; // Boş olayları atla
 
-            let eventType = null;
+            let eventType: string | null = null;
             let eventData = '';
-            let eventId = null;
+            let eventId: string | null = null;
 
             const lines = eventString.split('\n');
             for (const line of lines) {
                 if (line.startsWith('event: ')) {
                     eventType = line.replace('event: ', '').trim();
                 } else if (line.startsWith('data: ')) {
-                    // data: sonrası JSON'ı birleştirin, birden fazla data satırı olabilir
                     eventData += line.replace('data: ', '').trim();
-                } else if (line.startsWith('id: ')) { // Eğer backend'den id geliyorsa
+                } else if (line.startsWith('id: ')) {
                     eventId = line.replace('id: ', '').trim();
                 }
             }
@@ -65,10 +69,14 @@ export function useChatStream(
                 try {
                     const payload = JSON.parse(eventData);
                     if (eventType === "delta" && payload.chatId === chatId) {
-                        bufferRef.current += payload.data;
-                        onDelta(bufferRef.current, payload.parentId); // parentId'yi de gönder
+                        bufferRef.current += payload.data; // Genel akış içeriğini güncelle
+                        // parentId'yi ilk delta event'ten al
+                        if (payload.parentId && !parentIdRef.current) {
+                            parentIdRef.current = payload.parentId;
+                        }
+                        onDelta(bufferRef.current, parentIdRef.current); // Her delta geldiğinde çağır
                     } else if (eventType === "finished" && payload.chatId === chatId) {
-                        onComplete(); // Akış bittiğinde onComplete'i çağır
+                        onComplete(bufferRef.current, parentIdRef.current); // Akış bittiğinde onComplete'i çağır
                         stopStream(); // Akışı burada durdurmak daha mantıklı
                         return; // Bitirme olayı geldiyse daha fazla işlem yapma
                     }
@@ -83,7 +91,11 @@ export function useChatStream(
           reader.read().then(({ value, done }) => {
             if (done) {
               processBuffer(); // Kalan buffer'ı işle
-              onComplete(); // Akış tamamen bittiğinde onComplete'i çağır
+              // Akış sona erdiğinde (eğer 'finished' olayı gelmezse veya gelirse)
+              // onComplete'i son içeriği ve parentId ile çağırın.
+              // Eğer finished olayı geldiğinde zaten stopStream yapıldıysa bu kısma düşmeyecek.
+              // Ancak hata durumunda veya beklenmedik kapanmada burası çalışabilir.
+              onComplete(bufferRef.current, parentIdRef.current); 
               return;
             }
 
@@ -93,7 +105,7 @@ export function useChatStream(
           }).catch((err) => {
             if (controller.signal.aborted) return;
             console.error("Reader read error:", err);
-            onComplete(); // Hata durumunda da onComplete'i çağır
+            onComplete(bufferRef.current, parentIdRef.current); // Hata durumunda da onComplete'i çağır
           });
         };
 
@@ -102,14 +114,15 @@ export function useChatStream(
       .catch((err) => {
         if (controller.signal.aborted) return;
         console.error("SSE fetch error:", err);
-        onComplete(); // Hata durumunda da onComplete'i çağır
+        onComplete(bufferRef.current, parentIdRef.current); // Hata durumunda da onComplete'i çağır
       });
   }, [chatId, onDelta, onComplete]);
 
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-    bufferRef.current = "";
+    bufferRef.current = ""; // Stop edildiğinde buffer'ı temizle
+    parentIdRef.current = undefined; // ParentId'yi temizle
   }, []);
 
   useEffect(() => {
