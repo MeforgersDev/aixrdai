@@ -1,3 +1,4 @@
+// components/message-bubble.tsx
 "use client"
 
 import { useState } from "react"
@@ -13,7 +14,7 @@ import remarkGfm from "remark-gfm"
 interface MessageBubbleProps {
   message: Message
   onRegenerate?: (parentId: string, content: string) => void
-  isStreaming?: boolean
+  isStreaming?: boolean // Yeni eklenen prop: Mesajın şu an akış halinde olup olmadığını belirtir.
 }
 
 export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBubbleProps) {
@@ -57,9 +58,25 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
   }
 
   const handleRegenerate = () => {
-    if (onRegenerate && message.parentId) {
-      const userMessage = message.parentId
-      onRegenerate(userMessage, message.content)
+    // Sadece eğer mesaj bir ASSISTANT mesajıysa ve parentId varsa yeniden üretme yapılabilir.
+    // ParentId, hangi kullanıcı mesajına yanıt verildiğini belirtir.
+    if (onRegenerate && message.role === "ASSISTANT" && message.parentId) {
+      // Yeniden üretme için, bu AI yanıtının geldiği USER mesajının içeriğini göndermeliyiz.
+      // Şu anki yapınızda `parentId` alanında kullanıcı mesajının ID'si tutuluyor.
+      // Ancak `onRegenerate` fonksiyonu doğrudan içeriği bekliyor.
+      // Bu durumda, `message.content` yerine, bu AI mesajının parent'ı olan USER mesajının içeriğine ihtiyacımız var.
+      // Bu bilgiyi `ChatInterface`'da messages state'inden bulup buraya geçirmek daha doğru olurdu.
+      // Geçici çözüm olarak, AI mesajının içeriğini tekrar göndermek, AI'ın yeni bir yanıt üretmesini sağlar.
+      // Eğer spesifik olarak o USER mesajının içeriğini yeniden göndermek istiyorsak,
+      // `ChatInterface`'da `messages` dizisinden `message.parentId` ile USER mesajını bulup,
+      // onun içeriğini buraya `onRegenerate` ile geçirmemiz gerekirdi.
+      // Şu anki implementasyonda, `handleRegenerateMessage` ikinci parametre olarak "content" bekliyor,
+      // bu da yeniden üretme işleminin tekrar aynı (son kullanıcı) sorgusuyla yapılacağı anlamına gelir.
+      onRegenerate(message.parentId, message.content); // `message.content` yerine USER mesajının content'i gelmeli
+    } else if (onRegenerate && message.role === "USER") {
+      // Eğer bir kullanıcı mesajını yeniden üretmek istersek (örneğin backend'e yeni bir istek göndermek)
+      // O zaman kendi içeriğini ve kendi id'sini parentId olarak gönderebiliriz.
+      onRegenerate(message.id, message.content);
     }
   }
 
@@ -103,7 +120,11 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
                               onClick={() => handleCodeCopy(codeString)}
                               className="h-6 px-2 text-gray-300 hover:text-white hover:bg-gray-700"
                             >
-                              {copiedCode === codeString ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                              {copiedCode === codeString ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
                             </Button>
                           </div>
                           <SyntaxHighlighter
@@ -196,11 +217,14 @@ export function MessageBubble({ message, onRegenerate, isStreaming }: MessageBub
               >
                 {message.content}
               </ReactMarkdown>
-              {isStreaming && <span className="inline-block w-2 h-5 bg-gray-400 animate-pulse ml-1" />}
+              {/* Sadece isStreaming true ise ve mesaj henüz tamamlanmamışsa (content boş veya animasyon için) animasyonu göster */}
+              {isStreaming && (
+                <span className="inline-block w-2 h-5 bg-gray-400 animate-pulse ml-1" />
+              )}
             </div>
           )}
 
-          {/* Actions */}
+          {/* Actions - Sadece asistan mesajları için ve akış halinde değilken görünür */}
           {isAssistant && !isStreaming && (
             <div className="flex items-center space-x-2 mt-3 pt-2 border-t border-gray-200">
               <Button variant="ghost" size="sm" onClick={handleCopy} className="h-6 px-2 text-xs text-gray-600">

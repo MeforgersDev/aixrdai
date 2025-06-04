@@ -1,10 +1,11 @@
+// hooks/use-chat-stream.ts
 import { useEffect, useRef, useCallback } from "react"
 import { authService } from "@/lib/auth-service"
 
 export function useChatStream(
   chatId: string,
   onDelta: (text: string) => void,
-  onComplete?: () => void
+  onComplete: (fullMessage: string) => void // Değişiklik burada: tam mesajı da dönecek
 ) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const bufferRef = useRef("")
@@ -19,6 +20,7 @@ export function useChatStream(
     const url = `https://api.meforgers.com/chats/${chatId}/stream`
     const controller = new AbortController()
     abortControllerRef.current = controller
+    bufferRef.current = "" // Her yeni akış başladığında buffer'ı temizle
 
     fetch(url, {
       method: "GET",
@@ -39,28 +41,37 @@ export function useChatStream(
         const read = () => {
           reader.read().then(({ value, done }) => {
             if (done) {
-              onComplete?.()
+              onComplete(bufferRef.current) // Yayın bittiğinde tam mesajı callback'e gönder
               return
             }
 
             const chunk = decoder.decode(value, { stream: true })
 
-            for (const line of chunk.split("\n")) {
-              if (line.startsWith("data: ")) {
-                try {
-                  const payload = JSON.parse(line.replace("data: ", ""))
-                  if (payload.type === "delta") {
-                    bufferRef.current += payload.data
-                    onDelta(bufferRef.current)
-                  }
-                } catch (err) {
-                  console.error("SSE parse error:", err)
+            // SSE formatındaki "data: " önekini ve boşlukları kaldır
+            const lines = chunk.split('\n').filter(line => line.startsWith('data: ')).map(line => line.substring(6));
+
+            for (const line of lines) {
+              try {
+                const payload = JSON.parse(line);
+                if (payload.type === "delta") {
+                  bufferRef.current += payload.data;
+                  onDelta(bufferRef.current);
+                } else if (payload.type === "complete") { // Backend'den tamamlama sinyali alabiliriz
+                    // Bu senaryoda `onComplete` zaten `done` ile çağrılacak.
+                    // Ek bir işlem yapmaya gerek olmayabilir, ancak backend tarafından özel bir 'complete' event'i gönderiliyorsa burada yakalanabilir.
                 }
+              } catch (err) {
+                console.error("SSE parse error:", err, "Line:", line);
               }
             }
 
             read()
           })
+          .catch(err => {
+            if (controller.signal.aborted) return;
+            console.error("SSE read error:", err);
+            onComplete(bufferRef.current); // Hata durumunda da onComplete'i çağır
+          });
         }
 
         read()
@@ -68,7 +79,7 @@ export function useChatStream(
       .catch((err) => {
         if (controller.signal.aborted) return
         console.error("SSE fetch error:", err)
-        onComplete?.()
+        onComplete(bufferRef.current) // Fetch hatasında da onComplete'i çağır
       })
   }, [chatId, onDelta, onComplete])
 

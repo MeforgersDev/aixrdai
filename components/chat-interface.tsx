@@ -1,8 +1,8 @@
+// components/chat-interface.tsx
 "use client"
 
 import type React from "react"
-
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react" // useCallback eklendi
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -27,17 +27,46 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // onStreamComplete callback'i oluştur
+  const onStreamComplete = useCallback(
+    (fullMessage: string) => {
+      setIsStreaming(false)
+      setStreamingMessage("") // Streaming mesajını temizle
+
+      if (fullMessage) {
+        // Yeni bir ASSISTANT mesajı oluştur ve listeye ekle
+        const newMessage: Message = {
+          id: `ai-${Date.now()}`, // Gerçek ID backend'den gelmeli, ama burada geçici
+          chatId,
+          role: "ASSISTANT",
+          content: fullMessage,
+          createdAt: new Date().toISOString(),
+        }
+        setMessages((prev) => {
+          // Eğer en son mesaj bir temp user mesajı ise, o zaman gerçek AI mesajını ekle
+          // veya eğer zaten bir streaming mesajı varsa, onu güncelle
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage && lastMessage.id.startsWith("temp-") && lastMessage.role === "USER") {
+              // Temp user mesajının hemen arkasına AI mesajını ekle
+              return [...prev, newMessage];
+          }
+          // Diğer durumlarda (örn. doğrudan re-generate sonrası), sadece ekle
+          return [...prev, newMessage];
+        });
+      }
+      loadMessages(); // Mesajları backend'den tekrar yükle (ID'lerin güncellenmesi ve tutarlılık için)
+      onChatUpdate?.(); // Sohbet listesini güncelle
+    },
+    [chatId, onChatUpdate],
+  );
+
   const { startStream, stopStream } = useChatStream(
     chatId,
     (delta) => {
       setStreamingMessage(delta)
     },
-    () => {
-      setIsStreaming(false)
-      setStreamingMessage("")
-      loadMessages()
-    },
-  )
+    onStreamComplete, // Güncellenmiş callback'i gönder
+  );
 
   useEffect(() => {
     loadMessages()
@@ -76,12 +105,12 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
     const messageContent = inputValue.trim()
     setInputValue("")
     setIsLoading(true)
-    setIsStreaming(true)
+    setIsStreaming(true) // Streaming başladığını belirt
 
     try {
-      // Optimistic UI update
+      // Optimistic UI update: Kullanıcı mesajını hemen ekle
       const tempUserMessage: Message = {
-        id: `temp-${Date.now()}`,
+        id: `temp-${Date.now()}`, // Geçici ID
         chatId,
         role: "USER",
         content: messageContent,
@@ -89,13 +118,15 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
       }
       setMessages((prev) => [...prev, tempUserMessage])
 
-      // Start streaming
-      startStream()
+      // Mesajı backend'e gönder ve akışı başlat
+      // sendMessage API'si aslında sadece tetikleyici olmalı, yanıtı SSE'den bekliyoruz.
+      await chatService.sendMessage(chatId, messageContent);
 
-      // Send message
-      await chatService.sendMessage(chatId, messageContent)
+      // Akışı başlat (bu işlem sendMessage'dan ayrı veya paralel olabilir)
+      // Eğer backend'den sendMessage işlemi sonrası SSE bağlantısı otomatik başlamıyorsa,
+      // bu çağrı burada gerekli olacaktır. Mevcut backend yapınızda SSE endpoint'i zaten mevcut.
+      startStream();
 
-      onChatUpdate?.()
     } catch (error) {
       console.error("Mesaj gönderilirken hata:", error)
       toast({
@@ -103,10 +134,14 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
         description: "Mesaj gönderilirken bir hata oluştu",
         variant: "destructive",
       })
+      // Hata durumunda streaming ve loading state'lerini resetle
       setIsStreaming(false)
       setStreamingMessage("")
+      // Optimistic UI update'i geri alabiliriz veya kullanıcıya hata gösterebiliriz
+      setMessages(prev => prev.filter(msg => !msg.id.startsWith("temp-"))); // Geçici mesajı kaldır
     } finally {
       setIsLoading(false)
+      // `onStreamComplete` çağrıldığında `setIsStreaming(false)` ayarlanacağı için burada tekrar ayarlamaya gerek yok.
     }
   }
 
@@ -114,12 +149,25 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
     if (isLoading || isStreaming) return
 
     setIsLoading(true)
-    setIsStreaming(true)
+    setIsStreaming(true) // Streaming başladığını belirt
 
     try {
-      startStream()
-      await chatService.sendMessage(chatId, content, parentId)
-      onChatUpdate?.()
+      // Regenerate işleminde de yeni bir temp user mesajı ekleyebiliriz
+      const tempUserMessage: Message = {
+        id: `temp-${Date.now()}-regen`,
+        chatId,
+        role: "USER",
+        content: content, // Yeniden üretilecek mesajın içeriği
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, tempUserMessage]);
+
+      // Eski AI yanıtını kaldır (eğer parentId ile ilgili AI mesajı varsa)
+      setMessages(prev => prev.filter(msg => msg.parentId !== parentId || msg.role === "USER")); // Önceki AI yanıtını kaldır
+
+      await chatService.sendMessage(chatId, content, parentId); // ParentId ile gönder
+      startStream(); // Akışı başlat
+
     } catch (error) {
       console.error("Mesaj yeniden üretilirken hata:", error)
       toast({
@@ -129,6 +177,7 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
       })
       setIsStreaming(false)
       setStreamingMessage("")
+      setMessages(prev => prev.filter(msg => !msg.id.startsWith("temp-"))); // Geçici mesajı kaldır
     } finally {
       setIsLoading(false)
     }
@@ -154,10 +203,23 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
           {isStreaming && streamingMessage && (
             <MessageBubble
               message={{
-                id: "streaming",
+                id: "streaming", // Geçici ID
                 chatId,
                 role: "ASSISTANT",
                 content: streamingMessage,
+                createdAt: new Date().toISOString(),
+              }}
+              isStreaming={true}
+            />
+          )}
+          {/* Eğer isStreaming true ise ve streamingMessage boşsa (yani henüz bir delta gelmediyse) */}
+          {isStreaming && !streamingMessage && (
+            <MessageBubble
+              message={{
+                id: "loading",
+                chatId,
+                role: "ASSISTANT",
+                content: "Yapay zeka yanıt oluşturuyor...", // Yükleniyor mesajı
                 createdAt: new Date().toISOString(),
               }}
               isStreaming={true}
