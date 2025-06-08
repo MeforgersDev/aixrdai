@@ -101,8 +101,8 @@ export function useChatStream(
                                       assistantMessageId: assistantMessageIdRef.current,
                                   });
                                   stopStream();
-                                  return;   
-                          }
+                                  return;
+                              }
                       } catch (err) {
                           console.error("SSE event parse error:", err, "Event:", currentEvent);
                       }
