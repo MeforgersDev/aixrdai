@@ -173,7 +173,7 @@ export function useChatStream(
         });
         stopStream();
       });
-  }, [chatId, onDelta, onComplete, stopStream]); // stopStream'i bağımlılıklara ekle
+  }, [chatId, onDelta, onComplete]); // stopStream'i bağımlılıklara ekle
 
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort();
