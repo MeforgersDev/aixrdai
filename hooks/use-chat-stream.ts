@@ -80,26 +80,28 @@ export function useChatStream(
                           });
 
                           if (eventType && eventData) {
-                              const payload = JSON.parse(eventData);
-                            
+                            const payload = JSON.parse(eventData);
+                                
+                              // Backend'den gelen yeni payload yapısına göre düzeltme
                               if (eventType === "delta" && payload.chatId === chatId) {
-                                  bufferRef.current += payload.data;
+                                  bufferRef.current += payload.delta; // DOĞRU: payload.delta'yı kullan
                                   if (payload.parentId && !parentIdRef.current) {
                                       parentIdRef.current = payload.parentId;
                                   }
                                   onDelta(bufferRef.current, parentIdRef.current);
                               } else if (eventType === "finished" && payload.chatId === chatId) {
-                                  // Finished olayında final içeriği ve assistantMessageId'yi onComplete'e gönder
-                                  assistantMessageIdRef.current = payload.assistantMessageId; // Backend'den gelen gerçek ID
+                                  // Bu kısım zaten doğru, çünkü assistantMessageId'yi bekliyordu.
+                                  // Artık backend'den bu veri geleceği için düzgün çalışacak.
+                                  assistantMessageIdRef.current = payload.assistantMessageId;
+                                  console.log('Received finished event with assistantMessageId:', payload.assistantMessageId); 
                                   onComplete({
                                       chatId: payload.chatId,
                                       finalContent: bufferRef.current,
                                       parentId: parentIdRef.current,
                                       assistantMessageId: assistantMessageIdRef.current,
                                   });
-                                  stopStream(); // Akışı burada durdur
-                                  return; // İşlemi sonlandır
-                              }
+                                  stopStream();
+                                  return;   
                           }
                       } catch (err) {
                           console.error("SSE event parse error:", err, "Event:", currentEvent);
