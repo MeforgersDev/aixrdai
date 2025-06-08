@@ -20,6 +20,14 @@ export function useChatStream(
   const parentIdRef = useRef<string | undefined>(undefined); // Akış mesajının parentId'sini tutar (ilk delta'dan alınacak)
   const assistantMessageIdRef = useRef<string | undefined>(undefined); // Bitirme olayından alınacak
 
+  const stopStream = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    bufferRef.current = "";
+    parentIdRef.current = undefined;
+    assistantMessageIdRef.current = undefined;
+  }, []);
+
   const startStream = useCallback(() => {
     const token = authService.getToken()
     if (!token) {
@@ -54,7 +62,7 @@ export function useChatStream(
         let chunkBuffer = "" // Gelen chunk'ları birleştirip tam olayları ayrıştırmak için
 
         const processBuffer = () => {
-          // SSE standartlarına göre, her olayın sonunda iki yeni satır (\n\n) bulunur.
+          // SSE standartlarına göre, her olayın sonunda iki yeni sat (\n\n) bulunur.
           // Ancak, chunk'lar olayların tam ortasından bölünebilir.
           // Bu yüzden 'data: ' veya 'event: ' gibi prefix'lerle başlayan satırları
           // doğru bir şekilde ayrıştırmak için daha dikkatli olmalıyız.
@@ -103,6 +111,7 @@ export function useChatStream(
                                   stopStream();
                                   return;
                               }
+                          } // Bu 'if (eventType && eventData)' bloğunu kapattık.
                       } catch (err) {
                           console.error("SSE event parse error:", err, "Event:", currentEvent);
                       }
@@ -163,7 +172,7 @@ export function useChatStream(
 
         read();
       })
-      .catch((err) => {
+      .catch((err) => { // Bu catch bloğu doğru yerleştirilmişti, sadece .then() sonrası olması yeterliydi.
         if (controller.signal.aborted) return;
         console.error("SSE fetch error:", err);
         // Fetch hatası durumunda da akışı tamamla
@@ -175,15 +184,7 @@ export function useChatStream(
         });
         stopStream();
       });
-  }, [chatId, onDelta, onComplete]); // stopStream'i bağımlılıklara ekle
-
-  const stopStream = useCallback(() => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    bufferRef.current = "";
-    parentIdRef.current = undefined;
-    assistantMessageIdRef.current = undefined;
-  }, []);
+  }, [chatId, onDelta, onComplete, stopStream]); // stopStream'i bağımlılıklara ekle
 
   useEffect(() => {
     return () => {
