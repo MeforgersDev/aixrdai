@@ -21,8 +21,8 @@ interface ChatInterfaceProps {
 export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [isStreaming, setIsStreaming] = useState(false)
+  const [isLoading, setIsLoading] = useState(false) // Mesaj gönderme API'sinin durumu
+  const [isStreaming, setIsStreaming] = useState(false) // Akışın aktif olup olmadığını kontrol eder
 
   // Akış sırasında güncellenecek geçici AI mesajının içeriği ve parentId'si
   const [currentStreamingContent, setCurrentStreamingContent] = useState("");
@@ -33,17 +33,19 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
 
   // Stream'den gelen delta verisini işleyen callback
   const handleDelta = useCallback((delta: string, parentId?: string) => {
+    // Burada delta, tüm birikmiş akış içeriğidir.
+    // Optimistik UI'da temp AI mesajını güncellemek için kullanılır.
     setCurrentStreamingContent(delta);
-    if (parentId && !currentStreamingParentId) { 
+    if (parentId && !currentStreamingParentId) {
       setCurrentStreamingParentId(parentId);
     }
-  }, [currentStreamingParentId]); 
+  }, [currentStreamingParentId]);
 
   // Stream tamamlandığında çağrılan callback
   const handleStreamComplete = useCallback(({ finalContent, parentId, assistantMessageId }) => {
     setIsStreaming(false);
-    setCurrentStreamingContent(""); 
-    setCurrentStreamingParentId(undefined); 
+    setCurrentStreamingContent("");
+    setCurrentStreamingParentId(undefined);
 
     if (finalContent.trim()) {
         setMessages((prevMessages) => {
@@ -58,12 +60,12 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
                 updatedMessages[existingAiMessageIndex] = {
                     ...updatedMessages[existingAiMessageIndex],
                     content: finalContent,
-                    id: assistantMessageId || updatedMessages[existingAiMessageIndex].id, // Gerçek ID'yi kullan
-                    createdAt: new Date().toISOString(), 
+                    id: assistantMessageId || updatedMessages[existingAiMessageIndex].id,
+                    createdAt: new Date().toISOString(),
                 };
                 return updatedMessages;
             } else {
-                // Eğer geçici AI mesajı bulunamazsa (ki olmamalı), yeni bir AI mesajı olarak ekle
+                // Yedek durum: Eğer geçici mesaj bulunamazsa, yeni bir AI mesajı olarak ekle
                 return [
                     ...prevMessages,
                     {
@@ -78,7 +80,7 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
             }
         });
     }
-    onChatUpdate?.(); 
+    onChatUpdate?.(); // Sohbet listesinin güncellenmesi için
   }, [chatId, onChatUpdate]);
 
   // useChatStream hook'unu burada çağır
@@ -125,7 +127,7 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
 
     const messageContent = inputValue.trim();
     setInputValue("");
-    setIsLoading(true); 
+    setIsLoading(true); // Mesaj gönderme API çağrısının yüklenme durumu
 
     const tempUserMessageId = `temp-user-${Date.now()}`;
     const tempAiMessageId = `temp-ai-${Date.now() + 1}`; 
@@ -137,33 +139,33 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
       role: "USER",
       content: messageContent,
       createdAt: new Date().toISOString(),
-      parentId: undefined, 
+      parentId: undefined,
     };
     const tempAiMessage: Message = {
       id: tempAiMessageId,
       chatId,
       role: "ASSISTANT",
-      content: "", 
+      content: "", // Başlangıçta boş
       createdAt: new Date().toISOString(),
-      parentId: tempUserMessageId, 
+      parentId: tempUserMessageId, // Kullanıcı mesajının ID'si parent olacak
     };
 
     // Mesajları state'e ekle
     setMessages((prev) => [...prev, tempUserMessage, tempAiMessage]);
-    setCurrentStreamingParentId(tempUserMessageId); 
+    setCurrentStreamingParentId(tempUserMessageId); // Geçici AI mesajının parentId'sini ayarla
     setIsStreaming(true); // Akış başlayacak
 
     try {
-      // Backend'e mesajı gönder. Bu artık çok hızlı dönecek ve sadece userMsg'yi geri verecek.
-      const { userMsg } = await chatService.sendMessage(chatId, messageContent, undefined); 
+      // Backend'e mesajı gönder. Bu çağrı artık hemen dönecek ve sadece userMsg'yi içerecek.
+      const { userMsg } = await chatService.sendMessage(chatId, messageContent, undefined);
 
       // Optimistik olarak eklenen kullanıcı mesajını, backend'den gelen gerçek ID ile güncelle
       setMessages((prev) => prev.map(msg => 
           msg.id === tempUserMessageId ? { ...userMsg, createdAt: userMsg.createdAt } : msg
       ));
       
-      // Backend sendMessage'i tamamladığı anda stream'i başlat.
-      // Backend _processAndStreamResponse'i başlatmış ve delta eventlerini yaymaya başlamış olacak.
+      // Backend mesajı kaydettikten sonra, stream'i başlatmak için hemen çağır.
+      // Backend, Gemini'den gelen delta'ları bu stream'e göndermeye başlayacak.
       startStream(); 
       
     } catch (error) {
@@ -183,7 +185,7 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
           msg.id !== tempUserMessageId && msg.id !== tempAiMessageId && !msg.id.startsWith("temp-")
       ));
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Sadece mesaj gönderme API çağrısı bitince
     }
   };
 
@@ -205,15 +207,15 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
       role: "ASSISTANT",
       content: "",
       createdAt: new Date().toISOString(),
-      parentId: parentId, 
+      parentId: parentId, // Aynı parentId'yi kullan
     };
     setMessages((prev) => [...prev, tempRegeneratedAiMessage]);
-    setCurrentStreamingParentId(parentId); 
-    setIsStreaming(true); 
+    setCurrentStreamingParentId(parentId); // Yeniden üretilen mesajın parent'ı
+    setIsStreaming(true); // Akış başlayacak
 
     try {
-      // Backend'e mesajı gönder. Backend, _processAndStreamResponse'ı başlatacak.
-      await chatService.sendMessage(chatId, userMessageContent, parentId); 
+      // Backend'e mesajı gönder. userMsg altyapısı olduğu için yine userMsg'yi dönecektir.
+      await chatService.sendMessage(chatId, userMessageContent, parentId);
       startStream();
     } catch (error) {
       console.error("Mesaj yeniden üretilirken hata:", error);
@@ -250,7 +252,7 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
                 isStreaming && 
                 message.role === "ASSISTANT" && 
                 message.parentId === currentStreamingParentId &&
-                message.id.startsWith("temp-ai-"); 
+                message.id.startsWith("temp-ai-");
 
             return (
               <MessageBubble 
@@ -259,7 +261,7 @@ export function ChatInterface({ chatId, onChatUpdate }: ChatInterfaceProps) {
                   ...message,
                   content: isCurrentStreamingAiMessage ? currentStreamingContent : message.content,
                 }} 
-                isStreaming={isCurrentStreamingAiMessage} 
+                isStreaming={isCurrentStreamingAiMessage}
                 onRegenerate={
                   message.role === "USER" && !isStreaming 
                     ? (id: string) => {

@@ -48,12 +48,12 @@ class ChatService {
     return response.json()
   }
 
-  // DEĞİŞİKLİK: sendMessage'ın dönüş tipi artık sadece userMsg içeriyor.
+  // DEĞİŞİKLİK: Sadece userMsg döndürüyor
   async sendMessage(
     chatId: string,
     content: string,
     parentId?: string,
-  ): Promise<{ userMsg: Message }> { // <-- assistantMsg kaldırıldı
+  ): Promise<{ userMsg: Message }> { // Sadece userMsg döndürecek
     const response = await authService.makeAuthenticatedRequest(`${API_BASE_URL}/chats/${chatId}/messages`, {
       method: "POST",
       body: JSON.stringify({
