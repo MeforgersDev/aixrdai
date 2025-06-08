@@ -1,3 +1,4 @@
+// lib/chat-service.ts
 import { authService } from "./auth-service"
 import type { Chat, Message } from "@/types/chat"
 
@@ -47,11 +48,12 @@ class ChatService {
     return response.json()
   }
 
+  // DEĞİŞİKLİK: sendMessage'ın dönüş tipi artık sadece userMsg içeriyor.
   async sendMessage(
     chatId: string,
     content: string,
     parentId?: string,
-  ): Promise<{ userMsg: Message; assistantMsg: Message }> {
+  ): Promise<{ userMsg: Message }> { // <-- assistantMsg kaldırıldı
     const response = await authService.makeAuthenticatedRequest(`${API_BASE_URL}/chats/${chatId}/messages`, {
       method: "POST",
       body: JSON.stringify({

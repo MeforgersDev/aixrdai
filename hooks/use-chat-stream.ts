@@ -13,12 +13,12 @@ interface StreamCompletionData {
 export function useChatStream(
   chatId: string,
   onDelta: (text: string, parentId?: string) => void,
-  onComplete: (data: StreamCompletionData) => void // Değiştirildi: tek bir obje alacak
+  onComplete: (data: StreamCompletionData) => void
 ) {
   const abortControllerRef = useRef<AbortController | null>(null)
-  const bufferRef = useRef("") // Akış sırasında biriken tüm metni tutar
-  const parentIdRef = useRef<string | undefined>(undefined); // Akış mesajının parentId'sini tutar (ilk delta'dan alınacak)
-  const assistantMessageIdRef = useRef<string | undefined>(undefined); // Bitirme olayından alınacak
+  const bufferRef = useRef("") 
+  const parentIdRef = useRef<string | undefined>(undefined); 
+  const assistantMessageIdRef = useRef<string | undefined>(undefined); 
 
   const stopStream = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -38,7 +38,7 @@ export function useChatStream(
     // Her yeni akış başladığında buffer ve parentId'yi sıfırla
     bufferRef.current = "";
     parentIdRef.current = undefined;
-    assistantMessageIdRef.current = undefined; // Sıfırla
+    assistantMessageIdRef.current = undefined; 
 
     const url = `https://api.meforgers.com/chats/${chatId}/stream`
     const controller = new AbortController()
@@ -59,26 +59,20 @@ export function useChatStream(
 
         const reader = response.body.getReader()
         const decoder = new TextDecoder("utf-8")
-        let chunkBuffer = "" // Gelen chunk'ları birleştirip tam olayları ayrıştırmak için
+        let chunkBuffer = "" 
 
         const processBuffer = () => {
-          // SSE standartlarına göre, her olayın sonunda iki yeni sat (\n\n) bulunur.
-          // Ancak, chunk'lar olayların tam ortasından bölünebilir.
-          // Bu yüzden 'data: ' veya 'event: ' gibi prefix'lerle başlayan satırları
-          // doğru bir şekilde ayrıştırmak için daha dikkatli olmalıyız.
           const lines = chunkBuffer.split('\n');
           let currentEvent = "";
-          let processedLength = 0; // İşlenen karakter sayısını takip et
+          let processedLength = 0; 
 
           for (let i = 0; i < lines.length; i++) {
               const line = lines[i];
-              if (line.trim() === "") { // Boş satır, bir olayın sonu anlamına gelir
+              if (line.trim() === "") { 
                   if (currentEvent.length > 0) {
-                      // Tamamlanmış bir olay var, şimdi onu parse et
                       try {
                           let eventType: string | null = null;
                           let eventData = '';
-                          // event ve data satırlarını parse et
                           currentEvent.split('\n').forEach(eventLine => {
                               if (eventLine.startsWith('event: ')) {
                                   eventType = eventLine.substring('event: '.length).trim();
@@ -90,16 +84,13 @@ export function useChatStream(
                           if (eventType && eventData) {
                             const payload = JSON.parse(eventData);
                                 
-                              // Backend'den gelen yeni payload yapısına göre düzeltme
                               if (eventType === "delta" && payload.chatId === chatId) {
-                                  bufferRef.current += payload.delta; // DOĞRU: payload.delta'yı kullan
+                                  bufferRef.current += payload.delta; 
                                   if (payload.parentId && !parentIdRef.current) {
                                       parentIdRef.current = payload.parentId;
                                   }
                                   onDelta(bufferRef.current, parentIdRef.current);
                               } else if (eventType === "finished" && payload.chatId === chatId) {
-                                  // Bu kısım zaten doğru, çünkü assistantMessageId'yi bekliyordu.
-                                  // Artık backend'den bu veri geleceği için düzgün çalışacak.
                                   assistantMessageIdRef.current = payload.assistantMessageId;
                                   console.log('Received finished event with assistantMessageId:', payload.assistantMessageId); 
                                   onComplete({
@@ -111,26 +102,24 @@ export function useChatStream(
                                   stopStream();
                                   return;
                               }
-                          } // Bu 'if (eventType && eventData)' bloğunu kapattık.
+                          } 
                       } catch (err) {
                           console.error("SSE event parse error:", err, "Event:", currentEvent);
                       }
-                      currentEvent = ""; // Olay işlendi, sıfırla
+                      currentEvent = ""; 
                   }
-                  processedLength += line.length + 1; // Yeni satır karakterini de say
+                  processedLength += line.length + 1; 
               } else {
                   currentEvent += line + '\n';
                   processedLength += line.length + 1;
               }
           }
-          // İşlenmemiş kısmı tekrar buffer'a at
           chunkBuffer = chunkBuffer.substring(processedLength);
         };
 
         const read = () => {
           reader.read().then(({ value, done }) => {
             if (controller.signal.aborted) {
-                // Eğer akış durdurulmuşsa, kalan işleme devam etme
                 return; 
             }
 
@@ -141,25 +130,22 @@ export function useChatStream(
             processBuffer();
 
             if (done) {
-              // Akış tamamen bittiğinde ve 'finished' olayı gelmediyse (hata veya sunucu kapanması durumunda)
-              // onComplete'i çağır. (Normalde finished event'i geldikten sonra stopStream() çağrılır ve buraya düşülmez)
               if (!controller.signal.aborted && bufferRef.current.length > 0) {
                  onComplete({
                     chatId: chatId,
                     finalContent: bufferRef.current,
                     parentId: parentIdRef.current,
-                    assistantMessageId: assistantMessageIdRef.current, // Eğer belirlenmişse
+                    assistantMessageId: assistantMessageIdRef.current, 
                 });
               }
-              stopStream(); // Stream tamamen kapandı
+              stopStream(); 
               return;
             }
 
-            read(); // Bir sonraki chunku oku
+            read(); 
           }).catch((err) => {
-            if (controller.signal.aborted) return; // Manuel durdurulduysa hata loglama
+            if (controller.signal.aborted) return; 
             console.error("Reader read error:", err);
-            // Hata durumunda da akışı tamamla
             onComplete({
                 chatId: chatId,
                 finalContent: bufferRef.current,
@@ -172,10 +158,9 @@ export function useChatStream(
 
         read();
       })
-      .catch((err) => { // Bu catch bloğu doğru yerleştirilmişti, sadece .then() sonrası olması yeterliydi.
+      .catch((err) => { 
         if (controller.signal.aborted) return;
         console.error("SSE fetch error:", err);
-        // Fetch hatası durumunda da akışı tamamla
         onComplete({
             chatId: chatId,
             finalContent: bufferRef.current,
@@ -184,7 +169,7 @@ export function useChatStream(
         });
         stopStream();
       });
-  }, [chatId, onDelta, onComplete, stopStream]); // stopStream'i bağımlılıklara ekle
+  }, [chatId, onDelta, onComplete, stopStream]); 
 
   useEffect(() => {
     return () => {
